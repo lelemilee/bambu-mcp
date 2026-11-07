@@ -65,3 +65,10 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 pip install -e ".[dev]"
 pytest
 ```
+
+To smoke test against your real Bambu Studio (slices a 10 mm cube with the P2S presets):
+
+```
+set BAMBU_SMOKE_STUDIO=C:\Program Files\Bambu Studio\bambu-studio.exe
+pytest -k smoke
+```

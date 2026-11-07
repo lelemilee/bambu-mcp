@@ -64,6 +64,14 @@ def slice_file(
     jobs = work_dir.resolve() / "jobs"
     jobs.mkdir(parents=True, exist_ok=True)
     job_dir = Path(tempfile.mkdtemp(prefix="slice-", dir=jobs))  # private (0700)
+    try:
+        return _run_job(studio, source, job_dir, machine, process, filaments, plate, timeout)
+    except BaseException:
+        shutil.rmtree(job_dir, ignore_errors=True)
+        raise
+
+
+def _run_job(studio, source, job_dir, machine, process, filaments, plate, timeout) -> Path:
 
     # From here on the slicer only sees files we wrote into job_dir.
     model = private_copy(source, job_dir)
@@ -83,4 +91,8 @@ def slice_file(
     if result.returncode != 0 or not out.is_file():
         tail = (result.stderr or result.stdout or "").strip()[-1500:]
         raise RuntimeError(f"Slicing failed (exit {result.returncode}).\n{tail}")
+    # Keep only the sliced result; the model copy and preset files aren't needed.
+    for leftover in job_dir.iterdir():
+        if leftover != out:
+            leftover.unlink()
     return out

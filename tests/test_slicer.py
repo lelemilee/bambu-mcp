@@ -26,15 +26,25 @@ def profiles_dir(tmp_path):
     def put(sub, name, **data):
         (d / sub / f"{name}.json").write_text(json.dumps({"name": name, **data}))
 
+    p2s = ["Bambu Lab P2S 0.4 nozzle"]
     put("machine", "fdm_common", type="machine", machine_start_gcode=STOCK_START)
     put("machine", "Bambu Lab P2S 0.4 nozzle", type="machine", inherits="fdm_common",
-        machine_end_gcode="M84")
-    put("machine", "Bambu Lab A1 mini 0.4 nozzle", type="machine", machine_start_gcode="A1")
+        printer_model="Bambu Lab P2S", machine_end_gcode="M84")
+    put("machine", "Bambu Lab A1 mini 0.4 nozzle", type="machine", machine_start_gcode="A1",
+        printer_model="Bambu Lab A1 mini")
     put("process", "0.20mm Standard @BBL P2S", type="process", layer_height="0.2",
-        post_process=["should be removed"])
-    put("filament", "Bambu PLA Basic @BBL P2S", type="filament", filament_type=["PLA"])
-    put("filament", "Bambu PETG HF @BBL P2S", type="filament", filament_type=["PETG"])
-    put("filament", "Wrong Type @BBL P2S", type="filament", filament_type=["ABS"])
+        post_process=["should be removed"], compatible_printers=p2s)
+    put("process", "0.20mm Standard @BBL A1M", type="process",
+        compatible_printers=["Bambu Lab A1 mini 0.4 nozzle"])
+    put("filament", "Bambu PLA Basic @BBL P2S", type="filament", filament_type=["PLA"],
+        compatible_printers=p2s)
+    put("filament", "Bambu PETG HF @BBL P2S", type="filament", filament_type=["PETG"],
+        compatible_printers=p2s)
+    put("filament", "Wrong Type @BBL P2S", type="filament", filament_type=["ABS"],
+        compatible_printers=p2s)
+    put("filament", "No Type @BBL P2S", type="filament", compatible_printers=p2s)
+    put("filament", "Bambu PLA Basic @BBL A1M", type="filament", filament_type=["PLA"],
+        compatible_printers=["Bambu Lab A1 mini 0.4 nozzle"])
     return d
 
 
@@ -80,6 +90,27 @@ def test_preset_must_be_right_kind_and_type(profiles_dir):
         build_settings(p, ["PLA"], env={"BAMBU_FILAMENT_PRESET_PLA": "Wrong Type @BBL P2S"})
 
 
+def test_machine_must_be_p2s(profiles_dir):
+    with pytest.raises(PresetError, match="isn't a P2S"):
+        build_settings(SystemPresets([profiles_dir]), ["PLA"],
+                       env={"BAMBU_MACHINE_PRESET": "Bambu Lab A1 mini 0.4 nozzle"})
+
+
+@pytest.mark.parametrize("env", [
+    {"BAMBU_PROCESS_PRESET": "0.20mm Standard @BBL A1M"},
+    {"BAMBU_FILAMENT_PRESET_PLA": "Bambu PLA Basic @BBL A1M"},
+])
+def test_presets_must_be_made_for_p2s(profiles_dir, env):
+    with pytest.raises(PresetError, match="isn't made for"):
+        build_settings(SystemPresets([profiles_dir]), ["PLA"], env=env)
+
+
+def test_filament_without_type_refused(profiles_dir):
+    with pytest.raises(PresetError, match="unknown type"):
+        build_settings(SystemPresets([profiles_dir]), ["PLA"],
+                       env={"BAMBU_FILAMENT_PRESET_PLA": "No Type @BBL P2S"})
+
+
 def test_missing_preset_lists_close_matches(profiles_dir):
     with pytest.raises(PresetError, match="Similar: Bambu Lab P2S 0.4 nozzle"):
         build_settings(SystemPresets([profiles_dir]), ["PLA"],
@@ -112,6 +143,29 @@ def test_duplicate_or_case_variant_entries_refused(tmp_path):
         zf.writestr("3D/3dmodel.model", "<model/>")
         zf.writestr("3d/3DModel.model", "<model/>")
     with pytest.raises(ValueError, match="duplicate"):
+        strip_3mf(p.read_bytes())
+
+
+@pytest.mark.parametrize("name", [
+    "3D/../../evil.model", "/3D/abs.model", "3D\\win.model", "C:/3D/x.model",
+])
+def test_unsafe_entry_names_refused(tmp_path, name):
+    p = tmp_path / "t.3mf"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("3D/3dmodel.model", "<model/>")
+        zf.writestr(name, "<model/>")
+    with pytest.raises(ValueError, match="unsafe"):
+        strip_3mf(p.read_bytes())
+
+
+def test_zip_bomb_refused(tmp_path, monkeypatch):
+    from bambu_mcp import geometry
+    monkeypatch.setattr(geometry, "MAX_BYTES", 1000)
+    p = tmp_path / "bomb.3mf"
+    with zipfile.ZipFile(p, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("3D/3dmodel.model", b"0" * 100_000)  # tiny on disk, big unpacked
+    assert p.stat().st_size < 1000
+    with pytest.raises(ValueError, match="size limit"):
         strip_3mf(p.read_bytes())
 
 
@@ -191,6 +245,8 @@ def test_embedded_gcode_and_post_process_have_no_effect(env):
     assert process["post_process"] == []
     assert EVIL not in json.dumps(run["settings"] + run["filaments"])
     assert result["presets"]["machine"] == "Bambu Lab P2S 0.4 nozzle"
+    # Only the sliced result is left in the job folder.
+    assert [p.name for p in job_dir.iterdir()] == [Path(result["sliced_file"]).name]
 
 
 def test_source_swapped_after_copy_has_no_effect(env, monkeypatch):
@@ -218,6 +274,42 @@ def test_stl_round_trip_to_prepare(env):
     prep = server.prepare_print(result["sliced_file"])
     assert prep["plate"] == 1
     assert server._printer.uploaded == Path(result["sliced_file"]).read_bytes()
+
+
+def test_failed_slice_removes_job_folder(env, monkeypatch):
+    tmp_path, work, runs = env
+    src = tmp_path / "part.stl"
+    src.write_bytes(b"solid x\n")
+    monkeypatch.setattr(slicer.subprocess, "run",
+                        lambda cmd, **k: subprocess.CompletedProcess(cmd, 1, "", "boom"))
+    with pytest.raises(RuntimeError, match="boom"):
+        server.slice_model(str(src))
+    assert list((work / "jobs").iterdir()) == []
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("BAMBU_SMOKE_STUDIO"),
+                    reason="set BAMBU_SMOKE_STUDIO=path/to/bambu-studio to run against the real CLI")
+def test_smoke_real_bambu_studio(tmp_path):
+    import os
+    studio = os.environ["BAMBU_SMOKE_STUDIO"]
+    machine, process, fils = build_settings(
+        SystemPresets(presets.default_profile_dirs(studio)), ["PLA"], env={})
+    stl = tmp_path / "cube.stl"
+    stl.write_text(CUBE_STL)
+    out = slicer.slice_file(studio, stl, tmp_path / "work", machine, process, fils)
+    assert "Metadata/plate_1.gcode" in zipfile.ZipFile(out).namelist()
+
+
+CUBE_STL = "solid c\n" + "".join(
+    f"facet normal 0 0 0\nouter loop\nvertex {a}\nvertex {b}\nvertex {c}\nendloop\nendfacet\n"
+    for a, b, c in [
+        ("0 0 0", "10 0 0", "10 10 0"), ("0 0 0", "10 10 0", "0 10 0"),
+        ("0 0 10", "10 10 10", "10 0 10"), ("0 0 10", "0 10 10", "10 10 10"),
+        ("0 0 0", "10 0 10", "10 0 0"), ("0 0 0", "0 0 10", "10 0 10"),
+        ("0 10 0", "10 10 0", "10 10 10"), ("0 10 0", "10 10 10", "0 10 10"),
+        ("0 0 0", "0 10 0", "0 10 10"), ("0 0 0", "0 10 10", "0 0 10"),
+        ("10 0 0", "10 0 10", "10 10 10"), ("10 0 0", "10 10 10", "10 10 0"),
+    ]) + "endsolid c\n"
 
 
 def test_disallowed_filament_never_slices(env):

@@ -26,18 +26,12 @@ class PresetError(LookupError):
 
 
 def default_profile_dirs(studio_path: str | None) -> list[Path]:
-    """Install folder first (shipped with the app), then the app's own
-    downloaded system presets on Windows, macOS and Linux."""
+    """Same order Bambu Studio uses: the system presets it keeps up to date in
+    its data folder first, then the copies shipped in the install folder."""
     dirs: list[Path] = []
     env = os.environ.get("BAMBU_PROFILES_DIRS")
     if env:
         dirs += [Path(p) for p in env.split(os.pathsep) if p]
-    if studio_path:
-        exe = Path(studio_path)
-        dirs += [
-            exe.parent / "resources" / "profiles" / "BBL",
-            exe.parent.parent / "Resources" / "profiles" / "BBL",  # macOS bundle
-        ]
     if os.environ.get("APPDATA"):
         dirs.append(Path(os.environ["APPDATA"]) / "BambuStudio" / "system" / "BBL")
     home = Path.home()
@@ -45,6 +39,12 @@ def default_profile_dirs(studio_path: str | None) -> list[Path]:
         home / "Library" / "Application Support" / "BambuStudio" / "system" / "BBL",
         home / ".config" / "BambuStudio" / "system" / "BBL",
     ]
+    if studio_path:
+        exe = Path(studio_path)
+        dirs += [
+            exe.parent / "resources" / "profiles" / "BBL",
+            exe.parent.parent / "Resources" / "profiles" / "BBL",  # macOS bundle
+        ]
     return [d for d in dirs if d.is_dir()]
 
 
@@ -90,12 +90,22 @@ class SystemPresets:
                 "Set the matching BAMBU_*_PRESET setting.")
 
 
+def _require_compatible(preset: dict[str, Any], machine_name: str) -> None:
+    compatible = preset.get("compatible_printers")
+    if not isinstance(compatible, list) or machine_name not in compatible:
+        raise PresetError(f"Preset '{preset['name']}' isn't made for '{machine_name}'.")
+
+
 def build_settings(
     presets: SystemPresets, filament_types: list[str], env: dict[str, str] | None = None
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
     env = os.environ if env is None else env
     machine = presets.resolve(env.get("BAMBU_MACHINE_PRESET") or DEFAULT_MACHINE, "machine")
+    model = str(machine.get("printer_model") or machine["name"])
+    if "P2S" not in machine["name"] or "P2S" not in model:
+        raise PresetError(f"Machine preset '{machine['name']}' isn't a P2S preset.")
     process = presets.resolve(env.get("BAMBU_PROCESS_PRESET") or DEFAULT_PROCESS, "process")
+    _require_compatible(process, machine["name"])
     process["post_process"] = []  # never run scripts, even if a preset had one
     filaments = []
     for ftype in filament_types:
@@ -106,7 +116,8 @@ def build_settings(
         preset = presets.resolve(name, "filament")
         declared = preset.get("filament_type")
         declared = declared[0] if isinstance(declared, list) and declared else declared
-        if declared and str(declared).upper() != ftype:
-            raise PresetError(f"Preset '{name}' is {declared}, not {ftype}.")
+        if not declared or str(declared).upper() != ftype:
+            raise PresetError(f"Preset '{name}' is {declared or 'an unknown type'}, not {ftype}.")
+        _require_compatible(preset, machine["name"])
         filaments.append(preset)
     return machine, process, filaments

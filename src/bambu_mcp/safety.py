@@ -24,14 +24,6 @@ def human_code(length: int = 4) -> str:
     return "".join(secrets.choice(_CODE_ALPHABET) for _ in range(length))
 
 
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 16), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 @dataclass
 class PendingPrint:
     details: dict[str, Any]
