@@ -11,7 +11,7 @@ from mcp.server.elicitation import AcceptedElicitation, ElicitationResult
 from mcp.server.mcpserver import Elicit, MCPServer, Resolve
 from pydantic import BaseModel, Field
 
-from . import gcode_guard, slicer
+from . import presets, slicer
 from .config import Settings
 from .jobfile import inspect_job
 from .parsing import parse_ams, parse_status, valid_tray_indexes
@@ -86,27 +86,32 @@ def get_ams_spools() -> dict[str, Any]:
 
 
 @mcp.tool()
-def slice_model(path: str, plate: int = 0) -> dict[str, Any]:
-    """Slice a Bambu Studio 3MF project on this PC. plate=0 slices all plates.
+def slice_model(path: str, filaments: list[str] | None = None, plate: int = 0) -> dict[str, Any]:
+    """Slice a model (.stl, .step or .3mf) for the P2S on this PC. Doesn't touch the printer.
 
-    Doesn't touch the printer. Only files sliced here can be printed later.
+    filaments: one type per filament slot, "PLA" or "PETG" (default ["PLA"]).
+    Only the model's shape is used. Settings come from Bambu's own P2S system
+    presets, never from the file. Only files sliced here can be printed later.
     """
     if plate < 0:
         raise ValueError("plate must be 0 (all) or a plate number.")
-    source = Path(path).expanduser().resolve()
-    if source.suffix.lower() != ".3mf" or not source.is_file():
-        raise ValueError("Give a Bambu Studio .3mf project file.")
+    types = filaments or ["PLA"]
+    if not 1 <= len(types) <= 16:
+        raise ValueError("Give between 1 and 16 filament types.")
     studio = slicer.find_studio(settings().studio_path)
-    # Check BEFORE slicing: post_process scripts would run during slicing.
-    gcode_guard.check_project(
-        source,
-        gcode_guard.SystemProfiles(gcode_guard.default_profile_dirs(studio)),
-        allow_custom_gcode=settings().allow_custom_gcode,
+    machine, process, filament_presets = presets.build_settings(
+        presets.SystemPresets(presets.default_profile_dirs(studio)), types
     )
-    out = slicer.slice_file(studio, source, settings().work_dir, plate)
-    sliced().add(out)
-    plates = inspect_job(out)
-    return {"sliced_file": str(out), "plates": plates}
+    out = slicer.slice_file(
+        studio, Path(path), settings().work_dir, machine, process, filament_presets, plate
+    )
+    data = sliced().add(out)
+    return {
+        "sliced_file": str(out),
+        "presets": {"machine": machine["name"], "process": process["name"],
+                    "filaments": [f["name"] for f in filament_presets]},
+        "plates": inspect_job(data),
+    }
 
 
 @mcp.tool()

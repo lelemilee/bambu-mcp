@@ -82,10 +82,13 @@ class SlicedRegistry:
         self._work_dir = work_dir.resolve()
         self._files: dict[Path, str] = {}
 
-    def add(self, path: Path) -> None:
+    def add(self, path: Path) -> bytes:
+        """Register a freshly sliced file; returns the exact bytes that were hashed."""
         resolved = path.resolve()
         self._check_inside(resolved)
-        self._files[resolved] = sha256_file(resolved)
+        data = resolved.read_bytes()
+        self._files[resolved] = hashlib.sha256(data).hexdigest()
+        return data
 
     def verify(self, path: Path) -> tuple[Path, bytes]:
         """Read the file ONCE and return its verified bytes.

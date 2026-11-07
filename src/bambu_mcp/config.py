@@ -34,7 +34,6 @@ class Settings:
     studio_path: str | None
     work_dir: Path
     read_only: bool
-    allow_custom_gcode: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -52,5 +51,4 @@ class Settings:
             studio_path=os.environ.get("BAMBU_STUDIO_PATH") or None,
             work_dir=work_dir,
             read_only=_truthy(os.environ.get("BAMBU_READ_ONLY")),
-            allow_custom_gcode=_truthy(os.environ.get("BAMBU_ALLOW_CUSTOM_GCODE")),
         )

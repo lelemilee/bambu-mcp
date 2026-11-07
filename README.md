@@ -10,7 +10,7 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 | --- | --- | --- |
 | `get_status` | State, progress, time left, temps | No |
 | `get_ams_spools` | Material, color, remaining %, RFID, AMS humidity per slot | No |
-| `slice_model` | Slices a Bambu Studio 3MF project with the Bambu Studio CLI | No |
+| `slice_model` | Slices an STL/STEP/3MF with Bambu's stock P2S presets (shape only) | No |
 | `prepare_print` | Checks and uploads a file `slice_model` made, returns time/filament summary | No |
 | `start_print` | Pops up a confirm prompt for you (type a 4 letter code), then starts | Yes |
 | `pause_print` / `stop_print` | Pause or cancel (always allowed) | Stops it |
@@ -23,7 +23,7 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 - **No raw G-code or temperature tools** on purpose.
 - **Only you can start a print.** `start_print` asks you in a client prompt (MCP elicitation) and you type a short code shown only there. Claude never sees the code. A client that can't show prompts can't start prints.
 - **Only files this server sliced** (inside `BAMBU_WORK_DIR`, unchanged since slicing) can be printed. Plate and AMS mapping are checked against the file and the loaded spools.
-- **No custom G-code from projects.** Before slicing, the 3MF's G-code templates (start, end, layer change, filament change and so on) must match Bambu's own installed system presets. Projects with per-layer custom G-code are refused, and so are projects with post-processing scripts, which would run on your PC. If you really use a custom start G-code, you can set `BAMBU_ALLOW_CUSTOM_GCODE=true`, but post-processing stays blocked.
+- **Trusted slicing settings only.** `slice_model` copies the model once into a private folder and keeps only its shape (a 3MF is rebuilt without any of its settings). It then slices with Bambu's own P2S system presets from your Bambu Studio install. Settings, custom G-code and scripts stored in a file are never used. Filaments are PLA or PETG only.
 - **Read-only mode:** set `BAMBU_READ_ONLY=true` to allow only status, AMS, pause and stop.
 - **Cert pinning:** on first connect, the printer's TLS certs for both ports are saved together (`printer_cert_pins.json` in the work folder). If either one changes, the server refuses to send the access code. Delete that file if you replace the printer.
 
@@ -56,7 +56,8 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 
 - The MQTT/FTPS protocol isn't officially documented; field names follow [OpenBambuAPI](https://github.com/Doridian/OpenBambuAPI). The P2S may differ slightly.
 - `remaining_percent` is only known for Bambu RFID spools; others show `null`.
-- Slicing expects a 3MF project saved from Bambu Studio (it carries the printer, filament and process settings).
+- Default presets: `Bambu Lab P2S 0.4 nozzle`, `0.20mm Standard @BBL P2S`, `Bambu PLA Basic @BBL P2S`, `Bambu PETG HF @BBL P2S`. If your Bambu Studio names them differently, the error lists close matches; set `BAMBU_MACHINE_PRESET`, `BAMBU_PROCESS_PRESET`, `BAMBU_FILAMENT_PRESET_PLA` or `BAMBU_FILAMENT_PRESET_PETG`.
+- A 3MF loses its colors, plate layout and per-object settings (objects get auto-arranged). Multi-color by file isn't supported yet.
 
 ## Dev
 
