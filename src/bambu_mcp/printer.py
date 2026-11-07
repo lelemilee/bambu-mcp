@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import ftplib
+import hashlib
 import json
 import ssl
 import threading
@@ -26,12 +27,63 @@ USERNAME = "bblp"
 
 
 def _printer_tls_context() -> ssl.SSLContext:
-    # The printer uses a self-signed certificate, so we can't verify it
-    # against a CA. This is why the server must only be used on your own LAN.
+    # The printer's certificate isn't signed by a public CA, so normal
+    # verification can't work. Instead we pin its fingerprint (see CertPins).
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     return ctx
+
+
+class CertPins:
+    """Trust-on-first-use pinning of the printer's TLS certificate.
+
+    The first connection saves the cert's SHA-256 fingerprint per port. After
+    that, a different cert (for example someone on the Wi-Fi pretending to be
+    the printer) is refused before the access code is sent. If you replace the
+    printer or its firmware changes the cert, delete the pin file.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def _load(self) -> dict[str, str]:
+        try:
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def check(self, port: int, der_cert: bytes | None) -> None:
+        if not der_cert:
+            raise ConnectionError("Printer sent no TLS certificate; refusing to connect.")
+        fingerprint = hashlib.sha256(der_cert).hexdigest()
+        pins = self._load()
+        pinned = pins.get(str(port))
+        if pinned is None:
+            pins[str(port)] = fingerprint
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(pins, indent=2), encoding="utf-8")
+        elif pinned != fingerprint:
+            raise ConnectionError(
+                f"Printer TLS certificate on port {port} changed. Refusing to send the "
+                f"access code. If this is expected, delete {self.path} and retry."
+            )
+
+
+class _PinnedMqttClient(mqtt.Client):
+    """paho client that checks the cert pin right after the TLS handshake,
+    before the MQTT CONNECT packet (which carries the access code) is sent."""
+
+    pins: CertPins
+
+    def _ssl_wrap_socket(self, tcp_sock):  # paho 2.x internal hook
+        ssl_sock = super()._ssl_wrap_socket(tcp_sock)
+        try:
+            self.pins.check(MQTT_PORT, ssl_sock.getpeercert(binary_form=True))
+        except ConnectionError:
+            ssl_sock.close()
+            raise
+        return ssl_sock
 
 
 class PrinterClient:
@@ -42,11 +94,16 @@ class PrinterClient:
         self._got_report = threading.Event()
         self._connected = threading.Event()
         self._seq = 0
-        self._client = mqtt.Client(
+        self._seq_lock = threading.Lock()
+        self.pins = CertPins(settings.work_dir / "printer_cert_pins.json")
+        self._client = _PinnedMqttClient(
             mqtt.CallbackAPIVersion.VERSION2, client_id=f"bambu-mcp-{int(time.time())}"
         )
+        self._client.pins = self.pins
         self._client.username_pw_set(USERNAME, settings.access_code)
         self._client.tls_set_context(_printer_tls_context())
+        # Hostname check is replaced by the cert pin (the printer has no DNS name).
+        self._client.tls_insecure_set(True)
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._client.on_disconnect = lambda *a, **k: self._connected.clear()
@@ -94,9 +151,11 @@ class PrinterClient:
 
     def _publish(self, body: dict[str, Any]) -> None:
         self.connect()
-        self._seq += 1
+        with self._seq_lock:
+            self._seq += 1
+            seq = self._seq
         section = next(iter(body))
-        body[section]["sequence_id"] = str(self._seq)
+        body[section]["sequence_id"] = str(seq)
         self._client.publish(self._request_topic, json.dumps(body))
 
     def refresh(self, timeout: float = 8) -> dict[str, Any]:
@@ -152,6 +211,7 @@ class PrinterClient:
         ftp = _ImplicitFTPS(context=_printer_tls_context())
         ftp.connect(self.settings.host, FTPS_PORT, timeout=30)
         try:
+            self.pins.check(FTPS_PORT, ftp.sock.getpeercert(binary_form=True))
             ftp.login(USERNAME, self.settings.access_code)
             ftp.prot_p()
             with local_path.open("rb") as fh:

@@ -11,8 +11,8 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 | `get_status` | State, progress, time left, temps | No |
 | `get_ams_spools` | Material, color, remaining %, RFID, AMS humidity per slot | No |
 | `slice_model` | Slices a Bambu Studio 3MF project with the Bambu Studio CLI | No |
-| `prepare_print` | Uploads a sliced `.gcode.3mf`, returns a one-time confirm code + summary | No |
-| `start_print` | Starts the prepared job, needs the confirm code (single use, 5 min) | Yes |
+| `prepare_print` | Checks and uploads a file `slice_model` made, returns time/filament summary | No |
+| `start_print` | Pops up a confirm prompt for you (type a 4 letter code), then starts | Yes |
 | `pause_print` / `stop_print` | Pause or cancel (always allowed) | Stops it |
 | `resume_print` | Resume a paused job | Yes |
 
@@ -21,9 +21,10 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 - **LAN only.** Never port-forward 8883/990 or expose this server to the internet.
 - **Access code stays local** in `.env` (git-ignored). Don't paste it in chats or screenshots.
 - **No raw G-code or temperature tools** on purpose.
-- **Two-step print:** `prepare_print` then `start_print` with the code. Check the camera before you say go.
+- **Only you can start a print.** `start_print` asks you in a client prompt (MCP elicitation) and you type a short code shown only there. Claude never sees the code. A client that can't show prompts can't start prints.
+- **Only files this server sliced** (inside `BAMBU_WORK_DIR`, unchanged since slicing) can be printed. Plate and AMS mapping are checked against the file and the loaded spools.
 - **Read-only mode:** set `BAMBU_READ_ONLY=true` to allow only status, AMS, pause and stop.
-- The printer's TLS cert is self-signed, so it isn't verified. Another reason to keep this on your own network.
+- **Cert pinning:** the printer's TLS cert is saved on first connect (`printer_cert_pins.json` in the work folder). If it ever changes, the server refuses to send the access code. Delete that file if you replace the printer.
 
 ## Setup (Windows)
 

@@ -1,4 +1,4 @@
-from bambu_mcp.parsing import deep_merge, parse_ams, parse_status
+from bambu_mcp.parsing import deep_merge, parse_ams, parse_status, valid_tray_indexes
 
 REPORT = {
     "print": {
@@ -47,7 +47,7 @@ def test_ams_slots():
     assert unit["humidity_percent"] == 38
     pla, petg, empty = unit["slots"]
     assert pla == {
-        "slot": "AMS1-1", "empty": False, "material": "PLA", "name": "PLA Basic",
+        "slot": "AMS1-1", "tray_index": 0, "empty": False, "material": "PLA", "name": "PLA Basic",
         "color": "#FF6A13", "remaining_percent": 80, "rfid": "A1B2C3",
         "nozzle_temp_range": [190, 230],
     }
@@ -56,6 +56,8 @@ def test_ams_slots():
     assert empty["empty"] is True and empty["slot"] == "AMS1-3"
     assert ams["external_spool"]["empty"] is True
     assert ams["active_tray"] == "1"
+    assert petg["tray_index"] == 1
+    assert valid_tray_indexes(ams) == {0, 1}
 
 
 def test_deep_merge_keeps_old_fields():

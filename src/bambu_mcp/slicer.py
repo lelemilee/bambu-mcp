@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 DEFAULT_PATHS = [
@@ -60,6 +61,8 @@ def slice_file(
     filaments: list[str] | None = None,
     timeout: int = 900,
 ) -> Path:
+    # Absolute path, so a name like "-x.3mf" can't be read as a CLI option.
+    input_file = input_file.expanduser().resolve()
     if not input_file.is_file():
         raise FileNotFoundError(f"No such file: {input_file}")
     if input_file.suffix.lower() != ".3mf" and not settings:
@@ -68,7 +71,9 @@ def slice_file(
             "project in Bambu Studio first, or pass settings JSON files."
         )
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_name = f"{input_file.stem}.gcode.3mf"
+    output_dir = output_dir.resolve()
+    # Timestamped so slicing the same model twice never overwrites a job.
+    output_name = f"{input_file.stem}-{time.strftime('%Y%m%d-%H%M%S')}.gcode.3mf"
     cmd = build_command(studio, input_file, output_dir, output_name, plate, settings, filaments)
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     out = output_dir / output_name

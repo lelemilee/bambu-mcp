@@ -56,7 +56,7 @@ def parse_status(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_tray(tray: dict[str, Any], slot_label: str) -> dict[str, Any]:
+def _parse_tray(tray: dict[str, Any], slot_label: str, index: int | None) -> dict[str, Any]:
     material = tray.get("tray_type") or None
     remain = _num(tray.get("remain"))
     tag = tray.get("tray_uuid") or tray.get("tag_uid")
@@ -64,6 +64,7 @@ def _parse_tray(tray: dict[str, Any], slot_label: str) -> dict[str, Any]:
         tag = None
     return {
         "slot": slot_label,
+        "tray_index": index,  # value to use in ams_mapping
         "empty": material is None,
         "material": material,
         "name": tray.get("tray_sub_brands") or None,
@@ -78,16 +79,28 @@ def _parse_tray(tray: dict[str, Any], slot_label: str) -> dict[str, Any]:
     }
 
 
+def valid_tray_indexes(ams: dict[str, Any]) -> set[int]:
+    """Tray indexes that currently hold filament (usable in ams_mapping)."""
+    slots = [s for u in ams["units"] for s in u["slots"]]
+    if ams.get("external_spool"):
+        slots.append(ams["external_spool"])
+    return {s["tray_index"] for s in slots if not s["empty"] and s["tray_index"] is not None}
+
+
 def parse_ams(state: dict[str, Any]) -> dict[str, Any]:
     p = state.get("print", {})
     ams_root = p.get("ams") or {}
     units = []
     for unit in ams_root.get("ams", []) or []:
         unit_id = str(unit.get("id", len(units)))
-        trays = [
-            _parse_tray(t, f"AMS{int(unit_id) + 1 if unit_id.isdigit() else unit_id}-{int(t.get('id', i)) + 1}")
-            for i, t in enumerate(unit.get("tray", []) or [])
-        ]
+        unit_num = int(unit_id) if unit_id.isdigit() else None
+        trays = []
+        for i, t in enumerate(unit.get("tray", []) or []):
+            raw_id = _num(t.get("id"))
+            tray_num = int(raw_id) if raw_id is not None else i
+            label = f"AMS{unit_num + 1 if unit_num is not None else unit_id}-{tray_num + 1}"
+            index = unit_num * 4 + tray_num if unit_num is not None else None
+            trays.append(_parse_tray(t, label, index))
         units.append(
             {
                 "ams": unit_id,
@@ -100,6 +113,6 @@ def parse_ams(state: dict[str, Any]) -> dict[str, Any]:
     external = p.get("vt_tray")
     return {
         "units": units,
-        "external_spool": _parse_tray(external, "External") if isinstance(external, dict) else None,
+        "external_spool": _parse_tray(external, "External", 254) if isinstance(external, dict) else None,
         "active_tray": ams_root.get("tray_now"),
     }
