@@ -47,7 +47,7 @@ def test_registry_only_accepts_own_unchanged_files(tmp_path):
     good = work / "a.gcode.3mf"
     good.write_bytes(b"one")
     reg.add(good)
-    assert reg.verify(good) == good.resolve()
+    assert reg.verify(good) == (good.resolve(), b"one")
 
     stranger = work / "b.gcode.3mf"
     stranger.write_bytes(b"x")

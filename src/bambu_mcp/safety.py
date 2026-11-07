@@ -87,15 +87,24 @@ class SlicedRegistry:
         self._check_inside(resolved)
         self._files[resolved] = sha256_file(resolved)
 
-    def verify(self, path: Path) -> Path:
+    def verify(self, path: Path) -> tuple[Path, bytes]:
+        """Read the file ONCE and return its verified bytes.
+
+        Callers must inspect and upload these bytes, never reopen the path,
+        so a file swapped after this check can't slip through.
+        """
         resolved = path.expanduser().resolve()
         self._check_inside(resolved)
         expected = self._files.get(resolved)
         if expected is None:
             raise PermissionError("Only files made by slice_model in this session can be printed.")
-        if not resolved.is_file() or sha256_file(resolved) != expected:
+        try:
+            data = resolved.read_bytes()
+        except OSError as exc:
+            raise PermissionError("Sliced file is gone. Slice again.") from exc
+        if hashlib.sha256(data).hexdigest() != expected:
             raise PermissionError("Sliced file changed since slice_model made it. Slice again.")
-        return resolved
+        return resolved, data
 
     def _check_inside(self, resolved: Path) -> None:
         if not resolved.is_relative_to(self._work_dir):

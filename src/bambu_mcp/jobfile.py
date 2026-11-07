@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import re
 import zipfile
 from pathlib import Path
@@ -18,10 +19,10 @@ def _num(value: str | None) -> float | None:
         return None
 
 
-def inspect_job(path: Path) -> dict[int, dict[str, Any]]:
+def inspect_job(source: Path | bytes) -> dict[int, dict[str, Any]]:
     """Return {plate_number: {print_minutes, filament_g, filaments: [...]}}."""
     try:
-        zf = zipfile.ZipFile(path)
+        zf = zipfile.ZipFile(io.BytesIO(source) if isinstance(source, bytes) else source)
     except zipfile.BadZipFile as exc:
         raise ValueError("Not a valid sliced .gcode.3mf file.") from exc
     with zf:

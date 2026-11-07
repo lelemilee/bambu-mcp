@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 import time
 from pathlib import Path
 from typing import Annotated, Any
@@ -10,7 +11,7 @@ from mcp.server.elicitation import AcceptedElicitation, ElicitationResult
 from mcp.server.mcpserver import Elicit, MCPServer, Resolve
 from pydantic import BaseModel, Field
 
-from . import slicer
+from . import gcode_guard, slicer
 from .config import Settings
 from .jobfile import inspect_job
 from .parsing import parse_ams, parse_status, valid_tray_indexes
@@ -92,8 +93,17 @@ def slice_model(path: str, plate: int = 0) -> dict[str, Any]:
     """
     if plate < 0:
         raise ValueError("plate must be 0 (all) or a plate number.")
+    source = Path(path).expanduser().resolve()
+    if source.suffix.lower() != ".3mf" or not source.is_file():
+        raise ValueError("Give a Bambu Studio .3mf project file.")
     studio = slicer.find_studio(settings().studio_path)
-    out = slicer.slice_file(studio, Path(path), settings().work_dir, plate)
+    # Check BEFORE slicing: post_process scripts would run during slicing.
+    gcode_guard.check_project(
+        source,
+        gcode_guard.SystemProfiles(gcode_guard.default_profile_dirs(studio)),
+        allow_custom_gcode=settings().allow_custom_gcode,
+    )
+    out = slicer.slice_file(studio, source, settings().work_dir, plate)
     sliced().add(out)
     plates = inspect_job(out)
     return {"sliced_file": str(out), "plates": plates}
@@ -112,8 +122,9 @@ def prepare_print(
     plate, or -1 to leave one unmapped.
     """
     _require_writable()
-    path = sliced().verify(Path(sliced_file))
-    plates = inspect_job(path)
+    # From here on we only use `data`, the exact bytes that were hash-checked.
+    path, data = sliced().verify(Path(sliced_file))
+    plates = inspect_job(data)
     if plate < 1 or plate not in plates:
         raise ValueError(f"Plate {plate} isn't in this file. Sliced plates: {sorted(plates)}.")
     info = plates[plate]
@@ -135,8 +146,11 @@ def prepare_print(
             )
 
     # Unique name on the printer so a re-prepare never overwrites a file.
-    remote = f"{path.stem.removesuffix('.gcode')}-{time.strftime('%H%M%S')}.gcode.3mf"
-    printer().upload(path, remote)
+    remote = (
+        f"{path.stem.removesuffix('.gcode')}-{time.strftime('%H%M%S')}-"
+        f"{secrets.token_hex(2)}.gcode.3mf"
+    )
+    printer().upload(data, remote)
     summary = {
         "file": remote,
         "plate": plate,
@@ -168,10 +182,30 @@ def _ask_human() -> Elicit[PrintApproval]:
     return Elicit(
         f"Start printing {summary['file']} (plate {summary['plate']}, "
         f"~{summary['print_minutes']} min, ~{summary['filament_g']} g)?\n"
+        f"Filament: {_describe_filaments(summary)}\n"
         "Check the camera first: bed clear, right plate, right filament.\n"
         f"To start, type this code: {pending.code}",
         PrintApproval,
     )
+
+
+def _describe_filaments(summary: dict[str, Any]) -> str:
+    if not summary["use_ams"]:
+        return "external spool (AMS off)"
+    filaments = summary["filaments"] or [{}]
+    mapping = summary["ams_mapping"]
+    parts = []
+    for i, f in enumerate(filaments):
+        what = " ".join(x for x in (f.get("type"), f.get("color")) if x) or f"filament {i + 1}"
+        if mapping is None:
+            where = "printer picks slot"
+        elif i < len(mapping) and mapping[i] >= 0:
+            t = mapping[i]
+            where = "external spool" if t == 254 else f"AMS{t // 4 + 1} slot {t % 4 + 1}"
+        else:
+            where = "unmapped"
+        parts.append(f"{what} from {where}")
+    return "; ".join(parts)
 
 
 def _start_print(outcome: ElicitationResult[PrintApproval]) -> dict[str, Any]:

@@ -29,8 +29,9 @@ class FakePrinter:
     def refresh(self):
         return {"print": {"gcode_state": self.state, "ams": AMS}}
 
-    def upload(self, path, remote):
+    def upload(self, data, remote):
         self.calls.append(("upload", remote))
+        self.uploaded = data
         return remote
 
     def start_project(self, *args):
@@ -169,16 +170,6 @@ def test_read_only_mode(setup):
     assert fake.calls == [("pause",), ("stop",)]
 
 
-def test_reprepare_uses_new_remote_name(setup, monkeypatch):
-    fake, job = setup()
-    times = iter(["100000", "100001"])
-    monkeypatch.setattr(server.time, "strftime", lambda fmt: next(times))
-    server.prepare_print(str(job))
-    server.prepare_print(str(job))
-    names = [c[1] for c in fake.calls if c[0] == "upload"]
-    assert len(set(names)) == 2
-
-
 # ---- through a real MCP client, to prove the prompt goes to the human ----
 
 MODES = ["auto", "legacy"]  # new input_required flow and older mid-call requests
@@ -231,3 +222,32 @@ async def test_client_without_prompts_fails_closed(setup, mode):
     except Exception as exc:  # MCPError, possibly wrapped in an ExceptionGroup
         assert "elicitation capability" in "".join(traceback.format_exception(exc))
     assert not server._printer.started()
+
+
+def test_file_swapped_after_check_is_not_uploaded(setup, monkeypatch):
+    fake, job = setup()
+    original = job.read_bytes()
+    real_refresh = fake.refresh
+
+    def refresh_and_swap():
+        job.write_bytes(b"PK-evil-")  # attacker swaps the file mid-prepare
+        return real_refresh()
+
+    monkeypatch.setattr(fake, "refresh", refresh_and_swap)
+    server.prepare_print(str(job))
+    assert fake.uploaded == original
+
+
+def test_prompt_shows_spools_that_will_be_used(setup):
+    fake, job = setup()
+    server.prepare_print(str(job), ams_mapping=[1])
+    message = server._ask_human().message
+    assert "PLA #FF6A13 from AMS1 slot 2" in message
+
+
+def test_remote_names_have_random_suffix(setup):
+    fake, job = setup()
+    server.prepare_print(str(job))
+    server.prepare_print(str(job))
+    names = [c[1] for c in fake.calls if c[0] == "upload"]
+    assert len(set(names)) == 2

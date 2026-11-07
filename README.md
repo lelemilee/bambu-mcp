@@ -23,8 +23,9 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 - **No raw G-code or temperature tools** on purpose.
 - **Only you can start a print.** `start_print` asks you in a client prompt (MCP elicitation) and you type a short code shown only there. Claude never sees the code. A client that can't show prompts can't start prints.
 - **Only files this server sliced** (inside `BAMBU_WORK_DIR`, unchanged since slicing) can be printed. Plate and AMS mapping are checked against the file and the loaded spools.
+- **No custom G-code from projects.** Before slicing, the 3MF's G-code templates (start, end, layer change, filament change and so on) must match Bambu's own installed system presets. Projects with per-layer custom G-code are refused, and so are projects with post-processing scripts, which would run on your PC. If you really use a custom start G-code, you can set `BAMBU_ALLOW_CUSTOM_GCODE=true`, but post-processing stays blocked.
 - **Read-only mode:** set `BAMBU_READ_ONLY=true` to allow only status, AMS, pause and stop.
-- **Cert pinning:** the printer's TLS cert is saved on first connect (`printer_cert_pins.json` in the work folder). If it ever changes, the server refuses to send the access code. Delete that file if you replace the printer.
+- **Cert pinning:** on first connect, the printer's TLS certs for both ports are saved together (`printer_cert_pins.json` in the work folder). If either one changes, the server refuses to send the access code. Delete that file if you replace the printer.
 
 ## Setup (Windows)
 

@@ -9,7 +9,10 @@ from __future__ import annotations
 import copy
 import ftplib
 import hashlib
+import io
 import json
+import os
+import socket
 import ssl
 import threading
 import time
@@ -35,38 +38,64 @@ def _printer_tls_context() -> ssl.SSLContext:
     return ctx
 
 
-class CertPins:
-    """Trust-on-first-use pinning of the printer's TLS certificate.
+def fetch_cert(host: str, port: int, timeout: float = 10) -> bytes | None:
+    with socket.create_connection((host, port), timeout=timeout) as raw:
+        with _printer_tls_context().wrap_socket(raw) as tls:
+            return tls.getpeercert(binary_form=True)
 
-    The first connection saves the cert's SHA-256 fingerprint per port. After
-    that, a different cert (for example someone on the Wi-Fi pretending to be
-    the printer) is refused before the access code is sent. If you replace the
-    printer or its firmware changes the cert, delete the pin file.
+
+class CertPins:
+    """Trust-on-first-use pinning of the printer's TLS certificates.
+
+    On the very first connection to a host we fetch the certs of BOTH ports
+    (MQTT and FTPS) and save them together, so neither port gets a later,
+    separate "first use". After that a different cert (for example someone on
+    the Wi-Fi pretending to be the printer) is refused before the access code
+    is sent. If you replace the printer, delete the pin file.
     """
 
-    def __init__(self, path: Path) -> None:
-        self.path = path
+    PORTS = (MQTT_PORT, FTPS_PORT)
 
-    def _load(self) -> dict[str, str]:
+    def __init__(self, path: Path, fetch=fetch_cert) -> None:
+        self.path = path
+        self._fetch = fetch
+        self._lock = threading.Lock()
+
+    def _load(self) -> dict[str, dict[str, str]]:
         try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
+            data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
+        return data if isinstance(data, dict) else {}
 
-    def check(self, port: int, der_cert: bytes | None) -> None:
-        if not der_cert:
+    def _save(self, pins: dict[str, dict[str, str]]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(pins, indent=2), encoding="utf-8")
+        os.replace(tmp, self.path)  # atomic, so a crash never leaves half a file
+
+    @staticmethod
+    def _fp(der: bytes | None) -> str:
+        if not der:
             raise ConnectionError("Printer sent no TLS certificate; refusing to connect.")
-        fingerprint = hashlib.sha256(der_cert).hexdigest()
-        pins = self._load()
-        pinned = pins.get(str(port))
-        if pinned is None:
-            pins[str(port)] = fingerprint
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(pins, indent=2), encoding="utf-8")
-        elif pinned != fingerprint:
+        return hashlib.sha256(der).hexdigest()
+
+    def check(self, host: str, port: int, der_cert: bytes | None) -> None:
+        fingerprint = self._fp(der_cert)
+        with self._lock:
+            pins = self._load()
+            host_pins = pins.get(host)
+            if not isinstance(host_pins, dict) or not host_pins:
+                host_pins = {str(port): fingerprint}
+                for other in self.PORTS:
+                    if other != port:
+                        host_pins[str(other)] = self._fp(self._fetch(host, other))
+                pins[host] = host_pins
+                self._save(pins)
+        if host_pins.get(str(port)) != fingerprint:
             raise ConnectionError(
-                f"Printer TLS certificate on port {port} changed. Refusing to send the "
-                f"access code. If this is expected, delete {self.path} and retry."
+                f"Printer TLS certificate on port {port} doesn't match the saved pin. Refusing "
+                f"to send the access code. If you replaced the printer, delete {self.path}."
             )
 
 
@@ -79,7 +108,7 @@ class _PinnedMqttClient(mqtt.Client):
     def _ssl_wrap_socket(self, tcp_sock):  # paho 2.x internal hook
         ssl_sock = super()._ssl_wrap_socket(tcp_sock)
         try:
-            self.pins.check(MQTT_PORT, ssl_sock.getpeercert(binary_form=True))
+            self.pins.check(self._host, MQTT_PORT, ssl_sock.getpeercert(binary_form=True))
         except ConnectionError:
             ssl_sock.close()
             raise
@@ -206,16 +235,15 @@ class PrinterClient:
 
     # ---- files ------------------------------------------------------------
 
-    def upload(self, local_path: Path, remote_name: str | None = None) -> str:
-        remote_name = remote_name or local_path.name
+    def upload(self, data: bytes, remote_name: str) -> str:
+        """Upload exactly these bytes (already verified by the caller)."""
         ftp = _ImplicitFTPS(context=_printer_tls_context())
         ftp.connect(self.settings.host, FTPS_PORT, timeout=30)
         try:
-            self.pins.check(FTPS_PORT, ftp.sock.getpeercert(binary_form=True))
+            self.pins.check(self.settings.host, FTPS_PORT, ftp.sock.getpeercert(binary_form=True))
             ftp.login(USERNAME, self.settings.access_code)
             ftp.prot_p()
-            with local_path.open("rb") as fh:
-                ftp.storbinary(f"STOR {remote_name}", fh)
+            ftp.storbinary(f"STOR {remote_name}", io.BytesIO(data))
         finally:
             try:
                 ftp.quit()
