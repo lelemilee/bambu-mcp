@@ -154,8 +154,8 @@ class PrinterClient:
         self._client.loop_start()
         if not self._connected.wait(timeout):
             raise ConnectionError(
-                "Couldn't reach the printer over MQTT. Check the IP, access code, "
-                "and that LAN Only Mode / Developer Mode are on."
+                "Couldn't reach the printer over MQTT. Check the IP and access code, "
+                "and that this PC is on the same network as the printer."
             )
 
     def close(self) -> None:
