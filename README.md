@@ -24,12 +24,28 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 - **Only you can start a print.** `start_print` asks you in a client prompt (MCP elicitation) and you type a short code shown only there. Claude never sees the code. A client that can't show prompts can't start prints.
 - **Only files this server sliced** (inside `BAMBU_WORK_DIR`, unchanged since slicing) can be printed. Plate and AMS mapping are checked against the file and the loaded spools.
 - **Trusted slicing settings only.** `slice_model` copies the model once into a private folder and keeps only its shape (a 3MF is rebuilt without any of its settings). It then slices with Bambu's own P2S system presets from your Bambu Studio install. Settings, custom G-code and scripts stored in a file are never used. Filaments are PLA or PETG only.
-- **Read-only mode:** set `BAMBU_READ_ONLY=true` to allow only status, AMS, pause and stop.
+- **Read-only mode:** set `BAMBU_READ_ONLY=true` to allow only status, AMS, slicing, pause and stop. This is the setting to use with cloud mode (see below).
 - **Cert pinning:** on first connect, the printer's TLS certs for both ports are saved together (`printer_cert_pins.json` in the work folder). If either one changes, the server refuses to send the access code. Delete that file if you replace the printer.
+
+## Printer modes
+
+Bambu firmware only reliably accepts local commands (start, pause, resume, stop) when **LAN Only Mode** and **Developer Mode** are both on, and LAN Only Mode cuts off the cloud, so Bambu Handy stops working. Switching back to cloud mode can mean rebinding Handy.
+
+To avoid that, leave the printer in cloud mode day to day and only switch when you want Claude to start a print.
+
+| | Cloud mode + `BAMBU_READ_ONLY=true` (daily) | LAN Only + Developer Mode |
+| --- | --- | --- |
+| Bambu Handy | Works, stays bound | Stops working |
+| `get_status`, `get_ams_spools` | Works (confirmed on P2S, 2026-11-09) | Works |
+| `slice_model` | Works (no printer needed) | Works |
+| `pause_print` / `stop_print` | Allowed by the server, but the firmware probably ignores them (untested). Use Handy. | Works |
+| `prepare_print`, `start_print`, `resume_print` | Blocked by read-only mode | Works |
+
+In cloud mode the printer still serves its local MQTT status report to anyone with the access code, which is why reads keep working.
 
 ## Setup (Windows)
 
-1. On the printer: turn on **LAN Only Mode** and **Developer Mode**, then note the IP, serial and access code.
+1. On the printer: note the IP, serial and access code (Settings > General). Pick a mode from [Printer modes](#printer-modes) below.
 2. Install:
    ```
    git clone https://github.com/lelemilee/bambu-mcp
@@ -72,3 +88,7 @@ To smoke test against your real Bambu Studio (slices a 10 mm cube with the P2S p
 set BAMBU_SMOKE_STUDIO=C:\Program Files\Bambu Studio\bambu-studio.exe
 pytest -k smoke
 ```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
