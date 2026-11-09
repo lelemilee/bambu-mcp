@@ -1,0 +1,16 @@
+{
+  "name": "bambu-mcp",
+  "owner": { "name": "lelemilee" },
+  "metadata": {
+    "description": "Local Bambu Lab printer tools for Claude: status, AMS spools, slicing and confirmed printing."
+  },
+  "plugins": [
+    {
+      "name": "bambu",
+      "source": "./plugin",
+      "description": "Bambu Lab printer MCP server plus a skill for setup, modes and common workflows.",
+      "category": "productivity",
+      "keywords": ["3d-printing", "bambu-lab", "mcp"]
+    }
+  ]
+}

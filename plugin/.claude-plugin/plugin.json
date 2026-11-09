@@ -1,0 +1,10 @@
+{
+  "name": "bambu",
+  "version": "0.1.0",
+  "description": "Check and run a Bambu Lab printer on your home network: status, AMS spools, slicing with stock presets, and prints you confirm yourself.",
+  "author": { "name": "lelemilee" },
+  "homepage": "https://github.com/lelemilee/bambu-mcp",
+  "repository": "https://github.com/lelemilee/bambu-mcp",
+  "license": "MIT",
+  "keywords": ["3d-printing", "bambu-lab", "mcp"]
+}
