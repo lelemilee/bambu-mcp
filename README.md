@@ -18,7 +18,7 @@ It talks only to the printer on your home network (MQTT on 8883, FTPS on 990) an
 
 ## Safety rules
 
-- **LAN only.** Never port-forward 8883/990 or expose this server to the internet.
+- **Local network only.** Never port-forward 8883/990 or expose this server to the internet.
 - **Access code stays local** in `.env` (git-ignored). Don't paste it in chats or screenshots.
 - **No raw G-code or temperature tools** on purpose.
 - **Only you can start a print.** `start_print` asks you in a client prompt (MCP elicitation) and you type a short code shown only there. Claude never sees the code. A client that can't show prompts can't start prints.
@@ -45,7 +45,7 @@ In cloud mode the printer still serves its local MQTT status report to anyone wi
 
 ## Setup (Windows)
 
-1. On the printer: note the IP, serial and access code (Settings > General). Pick a mode from [Printer modes](#printer-modes) below.
+1. On the printer: note the IP, serial and access code (Settings > General). Pick a mode from [Printer modes](#printer-modes) above.
 2. Install:
    ```
    git clone https://github.com/lelemilee/bambu-mcp
