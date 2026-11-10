@@ -55,7 +55,7 @@ Needs [uv](https://docs.astral.sh/uv/) and, for slicing, Bambu Studio.
    On older versions: `/plugin marketplace add lelemilee/bambu-mcp`, then `/plugin install bambu@bambu-mcp`.
 3. Restart Claude Code and ask "what spools are in my AMS?"
 
-The plugin bundles the MCP server (run with `uvx` from this repo) and a `bambu-printer` skill that covers setup, the two printer modes and the common workflows. It is **read-only by default**. To allow printing, switch the printer to LAN Only + Developer Mode and start Claude Code with `BAMBU_READ_ONLY=false` in its environment.
+The plugin bundles the MCP server (run with `uvx` from this repo) and a `bambu-printer` skill that covers setup, the two printer modes and the common workflows. It is **read-only by default**. To allow printing, switch the printer to LAN Only + Developer Mode and start Claude Code with `BAMBU_READ_ONLY=false` in its environment. A `BAMBU_READ_ONLY` line in the env file has no effect under the plugin, because the process environment wins.
 
 Using Claude Desktop or claude.ai instead? Add the MCP server as in [Setup](#setup-windows) (or with the `uvx` command from [plugin/.mcp.json](plugin/.mcp.json)), and upload the [plugin/skills/bambu-printer](plugin/skills/bambu-printer) folder as a skill if you want the workflows too.
 

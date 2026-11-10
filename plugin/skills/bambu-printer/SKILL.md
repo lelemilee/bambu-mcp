@@ -71,7 +71,7 @@ Call the matching tool. Stop cancels the job and cannot be undone, so confirm wi
    ```
    A different location works too: set `BAMBU_ENV_FILE` to its path.
 4. Add the server:
-   - **Claude Code plugin:** `/plugin install bambu --marketplace lelemilee/bambu-mcp` (older Claude Code: `/plugin marketplace add lelemilee/bambu-mcp`, then `/plugin install bambu@bambu-mcp`), then restart. The plugin runs read-only unless `BAMBU_READ_ONLY=false` is set in the environment Claude Code starts from.
+   - **Claude Code plugin:** `/plugin install bambu --marketplace lelemilee/bambu-mcp` (older Claude Code: `/plugin marketplace add lelemilee/bambu-mcp`, then `/plugin install bambu@bambu-mcp`), then restart. The plugin runs read-only unless `BAMBU_READ_ONLY=false` is set in the environment Claude Code starts from. A `BAMBU_READ_ONLY` line in the env file is ignored under the plugin.
    - **Claude Desktop or any MCP client:** add this to its MCP config, then restart:
      ```json
      {
