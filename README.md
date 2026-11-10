@@ -43,6 +43,22 @@ To avoid that, leave the printer in cloud mode day to day and only switch when y
 
 In cloud mode the printer still serves its local MQTT status report to anyone with the access code, which is why reads keep working.
 
+## Quick install (Claude Code plugin)
+
+Needs [uv](https://docs.astral.sh/uv/) and, for slicing, Bambu Studio.
+
+1. Put your printer details in `~/.bambu-mcp.env` (same keys as [.env.example](.env.example)), or point `BAMBU_ENV_FILE` at another file.
+2. In Claude Code:
+   ```
+   /plugin install bambu --marketplace lelemilee/bambu-mcp
+   ```
+   On older versions: `/plugin marketplace add lelemilee/bambu-mcp`, then `/plugin install bambu@bambu-mcp`.
+3. Restart Claude Code and ask "what spools are in my AMS?"
+
+The plugin bundles the MCP server (run with `uvx` from this repo) and a `bambu-printer` skill that covers setup, the two printer modes and the common workflows. It is **read-only by default**. To allow printing, switch the printer to LAN Only + Developer Mode and start Claude Code with `BAMBU_READ_ONLY=false` in its environment. A `BAMBU_READ_ONLY` line in the env file has no effect under the plugin, because the process environment wins.
+
+Using Claude Desktop or claude.ai instead? Add the MCP server as in [Setup](#setup-windows) (or with the `uvx` command from [plugin/.mcp.json](plugin/.mcp.json)), and upload the [plugin/skills/bambu-printer](plugin/skills/bambu-printer) folder as a skill if you want the workflows too.
+
 ## Setup (Windows)
 
 1. On the printer: note the IP, serial and access code (Settings > General). Pick a mode from [Printer modes](#printer-modes) above.
@@ -54,7 +70,7 @@ In cloud mode the printer still serves its local MQTT status report to anyone wi
    .venv\Scripts\pip install -e .
    copy .env.example .env
    ```
-   Fill in `.env`.
+   Fill in `.env`. If `BAMBU_ENV_FILE` isn't set, the server reads `~/.bambu-mcp.env` when it exists, otherwise `.env` in the folder it starts in.
 3. Add to Claude Desktop's `claude_desktop_config.json`:
    ```json
    {

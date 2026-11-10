@@ -22,6 +22,15 @@ def _load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
+def _env_file() -> Path:
+    """BAMBU_ENV_FILE if set, else ~/.bambu-mcp.env if it exists, else ./.env."""
+    explicit = os.environ.get("BAMBU_ENV_FILE")
+    if explicit:
+        return Path(explicit).expanduser()
+    home_file = Path.home() / ".bambu-mcp.env"
+    return home_file if home_file.is_file() else Path(".env")
+
+
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -37,7 +46,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        _load_dotenv(Path(os.environ.get("BAMBU_ENV_FILE", ".env")))
+        _load_dotenv(_env_file())
         missing = [
             k for k in ("BAMBU_HOST", "BAMBU_SERIAL", "BAMBU_ACCESS_CODE") if not os.environ.get(k)
         ]

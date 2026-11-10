@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bambu": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/lelemilee/bambu-mcp@main", "bambu-mcp"],
+      "env": {
+        "BAMBU_READ_ONLY": "${BAMBU_READ_ONLY:-true}"
+      }
+    }
+  }
+}
